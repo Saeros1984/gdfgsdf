@@ -1,0 +1,9 @@
+D:\prod\neurals\neurals\bin\Debug\neurals.exe.config
+D:\prod\neurals\neurals\obj\Debug\neurals.csprojResolveAssemblyReference.cache
+D:\prod\neurals\neurals\obj\Debug\neurals.Properties.Resources.resources
+D:\prod\neurals\neurals\obj\Debug\neurals.csproj.GenerateResource.Cache
+D:\prod\neurals\neurals\bin\Debug\neurals.exe
+D:\prod\neurals\neurals\bin\Debug\neurals.pdb
+D:\prod\neurals\neurals\obj\Debug\neurals.exe
+D:\prod\neurals\neurals\obj\Debug\neurals.pdb
+D:\prod\neurals\neurals\obj\Debug\neurals.Baseform.resources
