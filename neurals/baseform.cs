@@ -16,7 +16,85 @@ namespace neurals
 {
     public partial class Baseform : Form
     {
+        public delegate void multil(string file, int[] outs);
         static Random rand = new Random();
+        // CONTROLS
+        public static Baseform bas;
+        public static ListBox brainlist;
+        public static Label name;
+        public static Label passedepochs;
+        public static Label maxmist;
+        public static Label midmist;
+        public static Label interrupt;
+        public static Control getControl(string name)
+        {
+            return bas.Controls.Find(name, true)[0];
+        }
+        static network currentNetwork = null;
+        static void renderNet ()
+        {
+            name.Text = currentNetwork.name + " " + currentNetwork.suffix.ToString();
+        }
+        static void renderLearn()
+        {
+            passedepochs.Invoke(new Action(() => passedepochs.Text = currentNetwork.epochpassed.ToString()));
+            passedepochs.Invoke(new Action(() => passedepochs.Update()));
+            maxmist.Invoke(new Action(() => maxmist.Text = currentNetwork.learndata.maxmistake.ToString()));
+            maxmist.Invoke(new Action(() => maxmist.Update()));
+            midmist.Invoke(new Action(() => midmist.Text = currentNetwork.learndata.midmistake.ToString()));
+            midmist.Invoke(new Action(() => midmist.Update()));
+            interrupt.Invoke(new Action(() => interrupt.Text = currentNetwork.interrupted));
+        }
+        static void onnetchange(string name)
+        {
+            currentNetwork = brain.networks[0];
+            foreach (network nn in brain.networks)
+            {
+                if (nn.name + " " + nn.suffix.ToString() == name)
+                {
+                    currentNetwork = nn;
+                    break;
+                }
+            }
+            renderNet();
+            renderLearn();
+        }
+        public class parameters
+        {
+            public string path;
+            public int[] outs;
+            public int cycle;
+            public bool parl;
+        }
+        public static object paramGen(string path, int[] outs, int cycle, bool parl)
+        {
+            parameters param=new parameters();
+            param.path = path;
+            param.outs = outs;
+            param.cycle = cycle;
+            param.parl = parl;
+            return param;
+        }
+        static class brain
+        {
+            public static List<network> networks = new List<network>();
+            public delegate void brainListSet();
+            public static void setList()
+            {
+                //brainlist.Invoke(new brainListSet(brainlist.Items.Clear));
+                brainlist.BeginInvoke(new Action(() =>
+                {
+                    brainlist.Items.Clear(); 
+                    for (int i = 0; i <= brain.networks.Count - 1; i++)
+                    {
+                        brainlist.Items.Add(brain.networks[i].name + " " + brain.networks[i].suffix.ToString());
+                        brainlist.Update();
+                    }
+                    brainlist.BeginInvoke(new brainListSet(brainlist.Update));
+                    brainlist.Update();
+                }));
+            }
+        }
         public object retobj()
         {
             return label1;
@@ -61,8 +139,9 @@ namespace neurals
             }
             MessageBox.Show(res);
         }
-        static void testgen(string file, int[] outs, Form form, int cicle=1000, bool parl=true)//многократное тестирование сетей
+        public static void testgen(/*string file, int[] outs, int cicle=5, bool parl=true*/ object obj)//многократное тестирование сетей
         {
+            parameters param=obj as parameters;
             Stopwatch watch = new Stopwatch();
             int maxmist=0;
             int midmist = 0;
@@ -71,21 +150,25 @@ namespace neurals
             double recordmist = 99999999;
             double midofmaxmist=0;
             watch.Start();
-            if (parl)
-            Parallel.For(0, cicle, (i, state) => {
-                network testnet = new network(form);
+            if (param.parl)
+            Parallel.For(0, param.cycle, (i, state) => {
+                network testnet = new network();
                     testnet.min = -150;
                     testnet.max = 150;
-                    testnet.speed = 4;
-                    testnet.maxmist = 0.1;
-                    testnet.epochs = 2000;
+                    testnet.speed = 1;
+                    testnet.maxmist = 0.00035;
+                    testnet.epochs = 3000;
                     testnet.impuls = true;
+                    testnet.impulscoef = 0.9;
                     testnet.smesh = false;
                     testnet.parall = false;
-                testnet.readfromXML(file, outs);
+                    testnet.alpha = 0.03;
+                    testnet.numericnorm = "Логистическая";
+                    testnet.normalalpha = 0.03;
+                testnet.readfromXML(param.path, param.outs);
                 testnet.totalgen();
                 testnet.addEnter();
-                testnet.addLayer(6);
+                testnet.addLayer(10);
                 testnet.connectToPrev();
                 testnet.addOut();
                 testnet.connectToPrev();
@@ -108,9 +191,9 @@ namespace neurals
                 }
             });
             else
-            for (int i = 0; i < cicle; i++)
+            for (int i = 0; i < param.cycle; i++)
             {
-                network testnet = new network(form);
+                network testnet = new network();
                     testnet.min = -150;
                     testnet.max = 150;
                     testnet.speed = 4;
@@ -119,7 +202,7 @@ namespace neurals
                     testnet.impuls = true;
                     testnet.smesh = false;
                     testnet.parall = false;
-                testnet.readfromXML(file, outs);
+                testnet.readfromXML(param.path, param.outs);
                 testnet.totalgen();
                 testnet.addEnter();
                 testnet.addLayer(5);
@@ -162,14 +245,23 @@ namespace neurals
         public Baseform()
         {
             InitializeComponent();
+            bas = this;
+            brainlist = bas.Controls.Find("brainList", false)[0] as ListBox;
+            name = getControl("networkName") as Label;
+            passedepochs = getControl("epochpassed") as Label;
+            maxmist = getControl("maxmistake") as Label;
+            midmist = getControl("midmistake") as Label;
+            interrupt = getControl("interrupted") as Label;
         }
         class network
         {
-            public string name;
+            public string name="";
+            public string descr = "";
+            public int suffix = 0;
             // ЭЛЕМЕНТЫ НА ФОРМЕ
-            Form baseform;
             Label epochsCount;
             // КОНЕЦ ЭЛЕМЕНТОВ
+            public Thread learningThread;
             public int min = -50;//значения для выставления начальных весов
             public int max = 50;
             public List<layer> layers=new List<layer>();//полный список слоев
@@ -183,7 +275,9 @@ namespace neurals
             public List<double> comparer = new List<double>();
             public datarow currentrow;//текущая строка данных
             public double alpha = 1;//крутизна сигмоиды
-            public string activationtype = "logistic";
+            public string activationtype = "Логистическая";
+            public string numericnorm = "Логистическая";//тип нормализации для чисел
+            public double normalalpha = 1;//крутизна сигмоиды для нормализации чисел
             public string rawdata;//необработанная строка данных
             //public List<double> mistake;//сюда будем собирать ошибку
             //public List<List<List<object>>> data = new List<List<List<object>>>();//готовый к обучению массив с выборкой
@@ -431,12 +525,30 @@ namespace neurals
                 oute.mothernetwork = this;
                 layers.Add(oute);
             }
-            public network(Form form)
+            public network(string name="Новая сеть")
             {
+                this.name = name;
+                if (currentNetwork == null) currentNetwork = this;
                 learndata = new data(this);
-                baseform = form;
-                epochsCount=baseform.Controls.Find("label1", false)[0] as Label;
-
+                epochsCount=bas.Controls.Find("label1", false)[0] as Label;
+                bool same = false;
+                do
+                {
+                    foreach (network nn in brain.networks)
+                    {
+                        if (this.name + " " + this.suffix.ToString() == nn.name + " " + nn.suffix.ToString())
+                        {
+                            this.suffix += 1;
+                            same = true;
+                            break;
+                        }
+                        same = false;
+                    }
+                    
+                }
+                while (same);
+                brain.networks.Add(this);
+                brain.setList();
             }
             public void setEnter(int rownum)
             {
@@ -507,10 +619,6 @@ namespace neurals
                 speedcorr++;
                 //epochsCount.Text = epochpassed.ToString();
                 //epochsCount.Update();
-                if (epochpassed>50000)//!!! боремся с параличем
-                {
-                    speed = 2 + speedcorr / 200000;
-                }
             }
                 public int epochs = 10000;//количество эпох для обучения
                 public bool impuls = true;//разрешение на использоване импульса
@@ -519,11 +627,12 @@ namespace neurals
                 public bool epochscond = true;
                 public int epochpassed = 0;//количество пройденных эпох
                 public double maxmist = 0.1;//условие по максимальной ошибке
-                public bool maxmistcond =true;
+                public bool maxmistcond =false;
                 public double midmist = 0.1;//условие по средней ошибке
                 public bool midmistcond = false;
                 public double speed = 3;//скорость обучения
                 public int speedcorr=0;
+                public string interrupted = "Обучение еще не проводилось";
             public string backPrograd()
             {
 
@@ -538,7 +647,20 @@ namespace neurals
                     if (maxmist > learndata.maxmistake && maxmistcond) return "Максимальная ошибка";
                     if (midmist > learndata.midmistake && midmistcond) return "Средняя ошибка";
                     backprogradepoch();
+                    if (currentNetwork == this&&epochpassed%50==0) renderLearn();
                 }
+            }
+            public void startLearning()
+            {
+
+                learningThread = new Thread(forthread);
+                learningThread.Start(this);
+            }
+            public static void forthread(object netw)
+            {
+                network thisnet = netw as network;
+                thisnet.interrupted = thisnet.backPrograd();
+                renderLearn();
             }
             public void getOutMistake(datarow row)
             {
@@ -810,6 +932,12 @@ namespace neurals
                 oo.Add((Int32.Parse(enter) - min) / (max - min));
                 return oo;
             }
+            public List<double> logisticNorm(string enter)
+            {
+                List<double> oo = new List<double>();
+                oo.Add(1 / (1 + Math.Pow(Math.E, -Int32.Parse(enter) * mothernetwork.normalalpha)));
+                return oo;
+            }
             public datarow addRow()
             {
                 datarow row = new datarow(this);
@@ -866,9 +994,9 @@ namespace neurals
             }
             public data(network mom)
             {
+                mothernetwork = mom;
                 normtable = new normalizationTable(this);
                 normtableForOuts = new normalizationTable(this);
-                mothernetwork = mom;
             }
         }
         class datarow
@@ -930,13 +1058,14 @@ namespace neurals
         }
         class normalizationTable
         {
-            private data motherdata;
+            public data motherdata;
             public List<List<normcell>> normtable = new List<List<normcell>>();
             public List<string> normtypes = new List<string>();
             public string numnorm = "linear";
             public normalizationTable(data data)
             {
                 motherdata = data;
+                numnorm = motherdata.mothernetwork.numericnorm;
             }
             public void formdistinct()
             {
@@ -968,12 +1097,21 @@ namespace neurals
                     normtypes.Add("");
                     if (motherdata.Columns[i][0]=="numeric")
                     {
-                        if(numnorm=="linear")
+                        if(numnorm=="Линейная")
                         {
                             normtypes[i] = numnorm;
                             foreach(normcell cel in normtable[i])
                             {
                                 cel.norm=motherdata.linearNorm(cel.raw);
+                            }
+                            continue;
+                        }
+                        if (numnorm == "Логистическая")
+                        {
+                            normtypes[i] = numnorm;
+                            foreach (normcell cel in normtable[i])
+                            {
+                                cel.norm = motherdata.logisticNorm(cel.raw);
                             }
                             continue;
                         }
@@ -1018,12 +1156,21 @@ namespace neurals
                     normtypes.Add("");
                     if (motherdata.Columns[i][0] == "numeric")
                     {
-                        if (numnorm == "linear")
+                        if (numnorm == "Линейная")
                         {
                             normtypes[i] = numnorm;
                             foreach (normcell cel in normtable[i])
                             {
                                 cel.norm = motherdata.linearNorm(cel.raw);
+                            }
+                            continue;
+                        }
+                        if (numnorm == "Логистическая")
+                        {
+                            normtypes[i] = numnorm;
+                            foreach (normcell cel in normtable[i])
+                            {
+                                cel.norm = motherdata.logisticNorm(cel.raw);
                             }
                             continue;
                         }
@@ -1066,11 +1213,12 @@ namespace neurals
             public string raw;
             public List<double> norm = new List<double>();
         }
+
         private void button1_Click(object sender, EventArgs e)
         {
 
-            testgen(@"C:\Users\User\Desktop\исклили2.xml", new int[] { 3 }, this);
-            /*network nnn = new network();
+            //new Thread(new ParameterizedThreadStart(testgen)).Start(paramGen(@"C:\Users\User\Desktop\исклили2.xml", new int[] { 3 }, 20, true));
+            network nnn = new network("sadf");
             nnn.readfromXML(@"C:\Users\User\Desktop\исклили2.xml", new int[] {3});
             nnn.totalgen();
             nnn.addEnter();
@@ -1078,10 +1226,6 @@ namespace neurals
             nnn.connectToPrev();
             nnn.addOut();
             nnn.connectToPrev();
-            nnn.setEnter(1);
-            nnn.getAnswer(); 
-            nnn.totalvisual("НАЧАЛЬНОЕ СОСТОЯНИЕ", true);
-            nnn.backPrograd();
             //nnn.getOutMistake(nnn.data.datarows[1]);
             /*nnn.setEnter(0);
             nnn.getAnswer();
@@ -1110,6 +1254,16 @@ namespace neurals
             //MessageBox.Show(res);
             //nnn.visual();
             MessageBox.Show((nnn.normalizationTable[0][0] as ArrayList)[0].ToString());*/
+        }
+
+        private void brainList_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            onnetchange((getControl("brainList") as ListBox).SelectedItem.ToString());
+        }
+
+        private void StartLearning_Click(object sender, EventArgs e)
+        {
+            currentNetwork.startLearning();
         }
     }
 }
