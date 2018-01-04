@@ -21,11 +21,21 @@ namespace neurals
         // CONTROLS
         public static Baseform bas;
         public static ListBox brainlist;
+        public static Button startLearning;
         public static Label name;
         public static Label passedepochs;
         public static Label maxmist;
         public static Label midmist;
         public static Label interrupt;
+        public static Label Speed;
+        public static DataGridView userinput;
+        public static DataGridView useroutput;
+        public static Label tbegin;
+        public static Label tcurrent;
+        public static Label stepvar;
+        public static Label gradientpercent;
+        public static Label pspeed;
+        public static Label result;
         public static Control getControl(string name)
         {
             return bas.Controls.Find(name, true)[0];
@@ -43,7 +53,25 @@ namespace neurals
             maxmist.Invoke(new Action(() => maxmist.Update()));
             midmist.Invoke(new Action(() => midmist.Text = currentNetwork.learndata.midmistake.ToString()));
             midmist.Invoke(new Action(() => midmist.Update()));
+            tbegin.Invoke(new Action(() => tbegin.Text = currentNetwork.T0.ToString()));
+            tbegin.Invoke(new Action(() => tbegin.Update()));
+            tcurrent.Invoke(new Action(() => tcurrent.Text = currentNetwork.T.ToString()));
+            tcurrent.Invoke(new Action(() => tcurrent.Update()));
+            stepvar.Invoke(new Action(() => stepvar.Text = currentNetwork.Px.ToString()));
+            stepvar.Invoke(new Action(() => stepvar.Update()));
             interrupt.Invoke(new Action(() => interrupt.Text = currentNetwork.interrupted));
+            Speed.Invoke(new Action(() => Speed.Text = currentNetwork.speed.ToString()));
+            gradientpercent.Invoke(new Action(() => gradientpercent.Text = currentNetwork.koshicoeff.ToString()));
+            pspeed.Invoke(new Action(() => pspeed.Text = currentNetwork.p.ToString()));
+            if (currentNetwork.learning == false)
+                startLearning.Invoke(new Action(() => startLearning.Text = "Начать обучение"));
+            else
+                startLearning.Invoke(new Action(() => startLearning.Text = "Остановить обучение"));
+        }
+        static void renderUserdata()
+        {
+            userinput.ColumnCount = 0;
+            //userinput.Columns[1].HeaderText = "mmmmmm";
         }
         static void onnetchange(string name)
         {
@@ -252,6 +280,16 @@ namespace neurals
             maxmist = getControl("maxmistake") as Label;
             midmist = getControl("midmistake") as Label;
             interrupt = getControl("interrupted") as Label;
+            Speed = getControl("speed") as Label;
+            startLearning = getControl("StartLearning") as Button;
+            userinput = getControl("userInput") as DataGridView;
+            useroutput = getControl("userOutput") as DataGridView;
+            tbegin = getControl("TBegin") as Label;
+            tcurrent = getControl("TCurrent") as Label;
+            stepvar = getControl("StepVar") as Label;
+            gradientpercent = getControl("gradientPercent") as Label;
+            pspeed = getControl("Pspeed") as Label;
+            result = getControl("Result") as Label;
         }
         class network
         {
@@ -262,13 +300,18 @@ namespace neurals
             Label epochsCount;
             // КОНЕЦ ЭЛЕМЕНТОВ
             public Thread learningThread;
+            public bool learning = false;//показывает, идет ли обучение в данный момент
             public int min = -50;//значения для выставления начальных весов
             public int max = 50;
+            public bool regular = true;//регуляризация
+            public double regweight = 8;//преельные веса для регуляризации
+            public double forfeit=100;//штраф-делитель для регуляризации
             public List<layer> layers=new List<layer>();//полный список слоев
             public List<neuron> neurons=new List<neuron>();//полный список нейронов
             public List<List<neuron>> enters = new List<List<neuron>>();//массив входов
             public List<List<neuron>> outs = new List<List<neuron>>();//массив выходов
-            public bool parall=true;//разрешение на использование параллельности
+            public bool control = false;//разрешение контрольной выборки
+            public bool parall=false;//разрешение на использование параллельности
             public double constant=1;//значение постоянных нейронов, ноль отключает их вообще
             public layer oute = new layer();//выходной слой
             public layer inn = new layer();//входной слой
@@ -276,8 +319,8 @@ namespace neurals
             public datarow currentrow;//текущая строка данных
             public double alpha = 1;//крутизна сигмоиды
             public string activationtype = "Логистическая";
-            public string numericnorm = "Логистическая";//тип нормализации для чисел
-            public double normalalpha = 1;//крутизна сигмоиды для нормализации чисел
+            public string numericnorm = "Линейная";//тип нормализации для чисел
+            public double normalalpha = 0.1;//крутизна сигмоиды для нормализации чисел
             public string rawdata;//необработанная строка данных
             //public List<double> mistake;//сюда будем собирать ошибку
             //public List<List<List<object>>> data = new List<List<List<object>>>();//готовый к обучению массив с выборкой
@@ -457,6 +500,8 @@ namespace neurals
                     learndata.normtableForOuts.generateNormForOuts();
                 }
                 learndata.generateNorm();
+                if (control)
+                    learndata.generateControl();
                 enterOut();
             }
 
@@ -605,18 +650,32 @@ namespace neurals
             }
             public void backprogradepoch()//команды, выполняемые в каждой эпохе обратного распространение
             {
+                if (koshicoeff == 0) return;
                 foreach (datarow row in learndata.datarows)
                 {
-                    getOutMistake(row);
+                    if (random)
+                    {
+                        getOutMistake(learndata.datarows[(int)(randomweight(0, learndata.datarows.Count - 1) * 100)]);
+                    }
+                    else
+                    {
+                        getOutMistake(row);
+                    }
+                    if (control && row.type == "learn" || !control)
+                    {
+                        totalvisual("ПОЛУЧЕНИЕ ОШИБКИ");
+                        mistakeToEnter();
+                        totalvisual("РАСПРОСТРАНЕНИЕ ОШИБКИ ВНИЗ");
+                        weightCorrect();
+                        totalvisual("РЕЗУЛЬТАТЫ КОРРЕКТИРОВКИ ВЕСОВ");
+                    }
+                    if (learning == false)
+                    {
+                        renderLearn();
+                        break;
+                    }
                     learndata.getmistakes();
-                    totalvisual("ПОЛУЧЕНИЕ ОШИБКИ");
-                    mistakeToEnter();
-                    totalvisual("РАСПРОСТРАНЕНИЕ ОШИБКИ ВНИЗ");
-                    weightCorrect();
-                    totalvisual("РЕЗУЛЬТАТЫ КОРРЕКТИРОВКИ ВЕСОВ");
                 }
-                epochpassed++;
-                speedcorr++;
                 //epochsCount.Text = epochpassed.ToString();
                 //epochsCount.Update();
             }
@@ -627,39 +686,188 @@ namespace neurals
                 public bool epochscond = true;
                 public int epochpassed = 0;//количество пройденных эпох
                 public double maxmist = 0.1;//условие по максимальной ошибке
-                public bool maxmistcond =false;
+                public bool maxmistcond =true;
                 public double midmist = 0.1;//условие по средней ошибке
                 public bool midmistcond = false;
-                public double speed = 3;//скорость обучения
+                public double speed = 5;//скорость обучения
                 public int speedcorr=0;
                 public string interrupted = "Обучение еще не проводилось";
+                public bool random = false;//подача выборки в случайном порядке
+                public double koshicoeff = 0.5;
             public string backPrograd()
             {
 
-                epochpassed = 0;
                 /*while ((epochpassed < epochs || !epochscond) && (maxmist < data.maxmistake || !maxmistcond) && (midmist < data.midmistake || !midmistcond))
                 {
                     backprogradepoch();
                 }*/
+                learning = true;
                 while (true)
                 {
-                    if (epochpassed >= epochs && epochscond) return "Предел эпох";
-                    if (maxmist > learndata.maxmistake && maxmistcond) return "Максимальная ошибка";
-                    if (midmist > learndata.midmistake && midmistcond) return "Средняя ошибка";
+                    if (epochpassed >= epochs && epochscond) { learning = false; return "Предел эпох"; }
+                    if (maxmist > learndata.maxmistake && maxmistcond) { learning = false; return "Максимальная ошибка"; }
+                    if (midmist > learndata.midmistake && midmistcond) { learning = false; return "Средняя ошибка"; }
+                    stohasticepoch();
                     backprogradepoch();
+                    epochpassed++;
+                    speedcorr++;
+                    if (learning == false) return "Остановлено пользователем";
                     if (currentNetwork == this&&epochpassed%50==0) renderLearn();
+                }
+
+            }
+            public string stohastic()
+            {
+                T = T0 / (1 + epochpassed);
+                while (true)
+                {
+                    if (epochpassed >= epochs && epochscond) { learning = false; return "Предел эпох"; }
+                    if (maxmist > learndata.maxmistake && maxmistcond) { learning = false; return "Максимальная ошибка"; }
+                    if (midmist > learndata.midmistake && midmistcond) { learning = false; return "Средняя ошибка"; }
+                    stohasticepoch();
+                    epochpassed++;
+                    if (learning == false) return "Остановлено пользователем";
+                    if (currentNetwork == this && epochpassed % 50 == 0) renderLearn();
+                }
+            }
+            public double T0 = 3000;//начальная температура
+            public double T;//текущая температура
+            public double p = 0.001;//скорость обучения
+            public double xc;//величина текущего шага
+            public double mist = 0;//ошибка для всей выборки
+            public double Px = 0;//вероятность шага величины
+            public double b = 0.00001;//множитель времени
+            public void stohasticepoch()
+            {
+                if ((1-koshicoeff) == 0) return;
+                xc = (1-koshicoeff)*p * T * Math.Tanh(randomweight(-157, 157));
+                T = T0 / (1 + (double)epochpassed*b);
+                Px = T / (T*T+xc*xc);
+                //MessageBox.Show(T.ToString());
+                mist = learndata.maxmistake;
+                foreach (datarow row in learndata.datarows)
+                {
+                    if (random)
+                    {
+                        getOutMistake(learndata.datarows[(int)(randomweight(0, learndata.datarows.Count - 1) * 100)]);
+                    }
+                    else
+                    {
+                        getOutMistake(row);
+                    }
+
+                    if (learning == false)
+                    {
+                        renderLearn();
+                        break;
+                    }
+                    row.findmistake(this);
+                   
+                    getAnswer();
+                    row.findmistake(this);
+                    learndata.getmistakes();
+                }
+                //epochpassed++;
+                //speedcorr++;
+                if (mist != 0 && mist < learndata.maxmistake && randomweight(0,100)>Px) stohasticreturnweight();
+                stohasticweightcorrect(xc);
+            }
+            public void stohasticWepoch()
+            {
+                xc = speed * T * Math.Tanh(randomweight(-157, 157));
+                T = T0 / (1 + (double)epochpassed / 10000);
+                Px = T / T0;
+                //MessageBox.Show(T.ToString());
+                mist = learndata.maxmistake;
+                foreach (datarow row in learndata.datarows)
+                {                  
+                    row.findmistake(this);
+                    mist=row.mistake;
+                    getOutMistake(row);
+                    foreach(neuron neu in neurons)
+                    {
+                        foreach (sinaps sin in neu.sinapses)
+                        {
+                            setEnter(learndata.datarows.IndexOf(row));
+                            getAnswer();
+                            row.findmistake(this);
+                            mist=row.mistake;
+                            sin.previous = sin.weight;
+                            sin.weight+=xc;
+                            setEnter(learndata.datarows.IndexOf(row));
+                            getAnswer();
+                            row.findmistake(this);
+                            if (row.mistake>=mist)
+                            {
+                                sin.weight = sin.previous;
+                            }
+                        }
+                    }
+                    
+                }
+                learndata.getmistakes();
+                epochpassed++;
+                speedcorr++;
+                if (mist != 0 && mist < learndata.maxmistake && randomweight(0, 100) > Px) stohasticreturnweight();
+                stohasticweightcorrect(xc);
+            }
+            public void stohasticweightcorrect(double corr=0)
+            {
+                for (int i = layers.Count - 1; i > 0; i--)
+                {
+                    foreach (neuron nn in layers[i].neurons)
+                    {
+                        foreach (sinaps val in nn.sinapses)
+                        {
+                            double cor=corr*randomweight(-100, 100);
+                            val.previous = val.weight;
+                            if (regular && Math.Abs(val.weight + cor) > regweight)
+                            {
+                                val.weight += cor / forfeit;
+                            }
+                            else
+                            {
+                                val.weight += cor;
+                            }
+                        }
+                    }
+                }
+            }
+            public void stohasticreturnweight()
+            {
+                for (int i = layers.Count - 1; i > 0; i--)
+                {
+                    foreach (neuron nn in layers[i].neurons)
+                    {
+                        foreach (sinaps val in nn.sinapses)
+                        {
+                            val.weight = val.previous;
+                        }
+                    }
                 }
             }
             public void startLearning()
             {
-
+                learning = true;
                 learningThread = new Thread(forthread);
+                learningThread.Start(this);
+            }
+            public void startCoshi()
+            {
+                learning = true;
+                learningThread = new Thread(forcoshi);
                 learningThread.Start(this);
             }
             public static void forthread(object netw)
             {
                 network thisnet = netw as network;
                 thisnet.interrupted = thisnet.backPrograd();
+                renderLearn();
+            }
+            public static void forcoshi(object netw)
+            {
+                network thisnet = netw as network;
+                thisnet.interrupted = thisnet.stohastic();
                 renderLearn();
             }
             public void getOutMistake(datarow row)
@@ -677,7 +885,27 @@ namespace neurals
                     {
                         //MessageBox.Show(row.outVector[i].ToString()+Environment.NewLine+oute.neurons[i].Out.ToString());
                         //MessageBox.Show(layers[0].neurons[0].Out.ToString() + Environment.NewLine + layers[0].neurons[1].Out.ToString());
+                        string activat;
+                        if (oute.neurons[i].activ == "inherit")
+                        {
+                            if (oute.neurons[i].motherlayer.activ=="inherit")
+                            {
+                                activat = activationtype;
+                            }
+                            else
+                            {
+                                activat = oute.neurons[i].motherlayer.activ;
+                            }
+                        }
+                        else
+                            activat = oute.neurons[i].activ;
+                        ////////////////////// ВЫШЕ мы уточняем, мкакая функция активации у конкретногго нейрона
+                        if (activat == "Логистическая")
                         oute.neurons[i].q = oute.neurons[i].Out * (1 - oute.neurons[i].Out) * (row.outVector[i] - oute.neurons[i].Out);
+                        if (activat == "Линейная")
+                        oute.neurons[i].q = alpha * (row.outVector[i] - oute.neurons[i].Out);
+                        if (activat == "Гипертангенс")
+                        oute.neurons[i].q = (1 - Math.Pow(oute.neurons[i].Out, 2)) * (row.outVector[i] - oute.neurons[i].Out);
                     }
             }
             public void mistakeToEnter()
@@ -707,8 +935,8 @@ namespace neurals
                             val.weight = val.weight + nn.q * speed * val.takeform.Out;
                             if (impuls)
                             {
-                                val.weight += val.predcorr * impulscoef;
-                                val.predcorr = nn.q * speed * val.takeform.Out;
+                                val.weight += val.predcorr * impulscoef + nn.q * speed * val.takeform.Out;
+                                val.predcorr = val.predcorr * impulscoef+nn.q * speed * val.takeform.Out;
                             }
                         });
                     });
@@ -717,10 +945,10 @@ namespace neurals
                     {
                         foreach (sinaps val in nn.sinapses)
                         {
-                            val.weight = val.weight + nn.q * speed * val.takeform.Out;
+                            val.weight = val.weight + nn.q * speed * val.takeform.Out*koshicoeff;
                             if (impuls)
                             {
-                                val.weight += val.predcorr * impulscoef;
+                                val.weight += val.predcorr * impulscoef*koshicoeff;
                                 val.predcorr = nn.q * speed * val.takeform.Out;
                             }
                         }
@@ -756,11 +984,103 @@ namespace neurals
                 }
                 MessageBox.Show(res + Environment.NewLine + mes);
             }
+            public string visualNormalized()
+            {
+                string res = "";
+                foreach (string[] st in learndata.Columns)
+                {
+                    res += st[0] + " " + Environment.NewLine;
+                }
+                foreach (datarow row in learndata.datarows)
+                {
+                    foreach (datacell cell in row.datacells)
+                    {
+                        res += cell.data + " " + Math.Round(cell.normalized[0], 5).ToString()+"    ";
+                    }
+                    res += Environment.NewLine;
+                }
+                return res;
+            }
+            public string visualNormtable()
+            {
+                string res = "";
+                foreach(List<normcell> lcel in learndata.normtable.normtable)
+                {
+                    foreach (normcell nor in lcel)
+                    {
+                        foreach (Double d in nor.norm)
+                        {
+                            res += d.ToString() + " ";
+                        }
+                    }
+                    res += Environment.NewLine;
+                }
+                return res;
+            }
+            public void initialweights()
+            {
+                foreach (neuron nn in neurons)
+                {
+                    foreach (sinaps sin in nn.sinapses)
+                    {
+                        sin.weight = randomweight(min, max);
+                    }
+                }
+            }
+            public void multiplelearning(int num=100)
+            {
+                network nnn = new network();
+                string res="";
+                int maxmist = 0;
+                int midmist = 0;
+                int epoch = 0;
+                int record = 99999999;
+                double recordmist = 99999999;
+                double midofmaxmist = 0;
+                for(int i=0;i<num;i++)
+                {
+                    nnn = new network();
+                    nnn.readfromXML(@"C:\Users\User\Desktop\исклили.xml", new int[] { 3 });
+                    nnn.totalgen();
+                    nnn.addEnter();
+                    nnn.addLayer(2);
+                    nnn.connectToPrev();
+                    //nnn.lastLayer().activ = "Линейная";
+                    nnn.addOut();
+                    nnn.connectToPrev();
+                    nnn.initialweights();
+                    string end = nnn.backPrograd();
+                    switch (end)
+                    {
+                        case "Максимальная ошибка":
+                            maxmist++;
+                            midofmaxmist += nnn.epochpassed;
+                            if (epochpassed < record) record = epochpassed;
+                            if (nnn.learndata.maxmistake < recordmist) recordmist = nnn.learndata.maxmistake;
+                            break;
+                        case "Средняя ошибка":
+                            midmist++;
+                            break;
+                        case "Предел эпох":
+                            epoch++;
+                            break;
+                    }
+                    res = "Максимальная ошибка: " + maxmist.ToString() + Environment.NewLine;
+                    res += "      Среднее количество эпох: " + (Math.Round(midofmaxmist/maxmist, 0)).ToString() + Environment.NewLine;
+                    res += "      Минимальное количество эпох: " + (record).ToString() + Environment.NewLine;
+                    res += "      Максимальная ошибка: " + (recordmist).ToString() + Environment.NewLine;
+                    res += "Средняя ошибка: " + midmist.ToString() + Environment.NewLine;
+                    res += "Предел эпох: " + epoch.ToString() + Environment.NewLine;
+                    result.Invoke(new Action(() => result.Text = res));
+                    result.Invoke(new Action(() => result.Update()));
+                }
+            }
         }
         class layer
         {
             public List<neuron> neurons=new List<neuron>();
             public string type;
+            public string activ = "inherit";
             public network mothernetwork;
             public layer(string typ = "hidden")
             {
@@ -804,8 +1124,29 @@ namespace neurals
                 else
                 foreach (neuron neu in neurons)
                 {
+                    if (neu.type == "const") return;
+                    string activat;
+                    if (neu.activ == "inherit")
+                    {
+                        if (activ == "inherit")
+                        {
+                            activat = mothernetwork.activationtype;
+                        }
+                        else
+                        {
+                            activat = activ;
+                        }
+                    }
+                    else
+                        activat = neu.activ;
+                    //////////////////
                     neu.takeNET();
+                    if (activat == "Логистическая")
                     neu.logistic(mothernetwork.alpha);
+                    if (activat == "Линейная")
+                    neu.linear(mothernetwork.alpha);
+                    if (activat == "Гипертангенс")
+                    neu.hypertang(mothernetwork.alpha);
                 }
             }
             public void visual()
@@ -821,6 +1162,7 @@ namespace neurals
         class neuron
         {
             public string type;
+            public string activ = "inherit";
             public double net=0;
             public double Out=0;
             public double q=0;
@@ -854,6 +1196,21 @@ namespace neurals
             }
             public void takeMistake()
             {
+                string activat;
+                if (activ == "inherit")
+                {
+                    if (motherlayer.activ == "inherit")
+                    {
+                        activat = motherlayer.mothernetwork.activationtype;
+                    }
+                    else
+                    {
+                        activat = motherlayer.activ;
+                    }
+                }
+                else
+                    activat = activ;
+                /////////////////////////////
                 q=0;
                 if (motherlayer.mothernetwork.parall)
                 Parallel.ForEach(receivers, (nn) =>
@@ -880,7 +1237,12 @@ namespace neurals
                     }
                     //MessageBox.Show(nn.sinapses[this].ToString() + Environment.NewLine + nn.q.ToString());
                 }
+                if(activat=="Логистическая")
                 q = q * Out * (1 - Out);
+                if (activat == "Линейная")
+                q = q * motherlayer.mothernetwork.alpha;
+                if (activat == "Гипертангенс")
+                q = q * (1 - Math.Pow(Out, 2));
             }
             public void logistic(double alpha=1)
             {
@@ -888,11 +1250,21 @@ namespace neurals
                 Out=1/(1+Math.Pow(Math.E, -net*alpha));
                 //if (motherlayer.mothernetwork.smesh) Out -= 0.5;
             }
-        }
+            public void linear(double alpha = 1)
+            {
+                if (type == "const") return;
+                Out = net*alpha;
+            }
+            public void hypertang(double a=1)
+            {
+                Out = (Math.Pow(Math.E, net * a) - Math.Pow(Math.E, -net * a)) / (Math.Pow(Math.E, net * a) + Math.Pow(Math.E, -net * a));
+            }
+       }
         class sinaps
         {
             public double weight;
             public double predcorr = 0;
+            public double previous = 0;
             public neuron father;
             public neuron takeform;
         }
@@ -902,6 +1274,7 @@ namespace neurals
             public List<datarow> datarows = new List<datarow>();
             public List<string[]> Columns = new List<string[]>();//1 - тип, 2 - роль в выборке
             public List<List<string>> distinct;//используется для определения различных элементов в каждом столбце.
+            public int controlnum = 25;
             public double min=9999999999;
             public double max=-9999999999;
             public double maxmistake=Double.PositiveInfinity;//максимальная ошибка по выборке
@@ -917,7 +1290,7 @@ namespace neurals
                      {
                          foreach (string str in distinct[i])
                          {
-                             ii=Int32.Parse(str);
+                             ii=Double.Parse(str.Replace(".", ","));
                              if (ii > max)
                                  max = ii;
                              if (ii < min)
@@ -929,13 +1302,21 @@ namespace neurals
             public List<double> linearNorm(string enter)
             {
                 List<double> oo = new List<double>();
-                oo.Add((Int32.Parse(enter) - min) / (max - min));
+                oo.Add((Double.Parse(enter.Replace(".",",")) - min) / (max - min));
                 return oo;
             }
             public List<double> logisticNorm(string enter)
             {
                 List<double> oo = new List<double>();
-                oo.Add(1 / (1 + Math.Pow(Math.E, -Int32.Parse(enter) * mothernetwork.normalalpha)));
+                oo.Add(1 / (1 + Math.Pow(Math.E, -Double.Parse(enter.Replace(".", ",")) * mothernetwork.normalalpha)));
+                return oo;
+            }
+            public List<double> hypertangNorm(string enter)
+            {
+                List<double> oo = new List<double>();
+                Double a = mothernetwork.normalalpha;
+                double ent = Double.Parse(enter.Replace(".", ","));
+                oo.Add((Math.Pow(Math.E, ent * a) - Math.Pow(Math.E, -ent * a)) / (Math.Pow(Math.E, ent * a) + Math.Pow(Math.E, -ent * a)));
                 return oo;
             }
             public datarow addRow()
@@ -960,18 +1341,36 @@ namespace neurals
                             {
                                 if (cell.raw == cel.data)
                                     cel.normalized = cell.norm;
+                                MessageBox.Show(cel.normalized.ToString()+" "+  cell.norm.ToString()+"    ");
                             }
                         }
                         else
                         {
-                            foreach (normcell cell in normtableForOuts.normtable[cel.columnNumber - 1])
+                            foreach (normcell cell in normtable.normtable[cel.columnNumber - 1])
                             {
                                 if (cell.raw == cel.data)
+                                    cel.normalized = cell.norm;
+                            }
+                            foreach (normcell cell in normtableForOuts.normtable[cel.columnNumber - 1])
+                            {
+                                if (cell.raw == cel.data&&Columns[cel.columnNumber-1][1]=="y-data")
                                     cel.normalized = cell.norm;
                             }
                         }
                     }
                     row.generateOutVector();
+                }
+            }
+            public void generateControl()
+            {
+                for (int i=0; i<Math.Round((decimal)datarows.Count/100*controlnum, 0); i++)
+                {
+                    double rand = randomweight(0, datarows.Count-1)*100;
+                    while(datarows[(int)rand].type!="learn")
+                    {
+                        rand = randomweight(0, datarows.Count - 1) * 100;
+                    }
+                    datarows[(int)rand].type = "control";
                 }
             }
             public void getmistakes()
@@ -987,8 +1386,19 @@ namespace neurals
                 else
                 foreach(datarow row in datarows)
                 {
-                    midmistake += row.mistake;
-                    if (row.mistake > maxmistake) maxmistake = row.mistake;
+                    if (mothernetwork.control)
+                    {
+                        if (row.type == "control")
+                        {
+                            midmistake += row.mistake;
+                            if (row.mistake > maxmistake) maxmistake = row.mistake;
+                        }
+                    }
+                    else
+                    {
+                        midmistake += row.mistake;
+                        if (row.mistake > maxmistake) maxmistake = row.mistake;
+                    }
                 }
                 midmistake = midmistake / datarows.Count;
             }
@@ -1004,6 +1414,7 @@ namespace neurals
             public List<datacell> datacells = new List<datacell>();
             public List<double> outVector = new List<double>();
             public double mistake=0;//последняя ошибка по строке
+            public string type = "learn";
             public data motherData;
             public datacell addCell()
             {
@@ -1097,6 +1508,15 @@ namespace neurals
                     normtypes.Add("");
                     if (motherdata.Columns[i][0]=="numeric")
                     {
+                        if (numnorm == "Без нормализации")
+                        {
+                            normtypes[i] = numnorm;
+                            foreach (normcell cel in normtable[i])
+                            {
+                                cel.norm.Add(Double.Parse(cel.raw));
+                            }
+                            continue;
+                        }
                         if(numnorm=="Линейная")
                         {
                             normtypes[i] = numnorm;
@@ -1115,6 +1535,16 @@ namespace neurals
                             }
                             continue;
                         }
+                        if (numnorm == "Гипертангенс")
+                        {
+                            normtypes[i] = numnorm;
+                            foreach (normcell cel in normtable[i])
+                            {
+                                cel.norm = motherdata.hypertangNorm(cel.raw);
+                            }
+                            continue;
+                        }
+
                     }
                     if (motherdata.Columns[i][0] == "bool")
                     {
@@ -1156,6 +1586,15 @@ namespace neurals
                     normtypes.Add("");
                     if (motherdata.Columns[i][0] == "numeric")
                     {
+                        if (numnorm == "Без нормализации")
+                        {
+                            normtypes[i] = numnorm;
+                            foreach (normcell cel in normtable[i])
+                            {
+                                cel.norm.Add(Double.Parse(cel.raw));
+                            }
+                            continue;
+                        }
                         if (numnorm == "Линейная")
                         {
                             normtypes[i] = numnorm;
@@ -1174,9 +1613,21 @@ namespace neurals
                             }
                             continue;
                         }
+                        if (numnorm == "Гипертангенс")
+                        {
+                            normtypes[i] = numnorm;
+                            foreach (normcell cel in normtable[i])
+                            {
+                                cel.norm = motherdata.hypertangNorm(cel.raw);
+                            }
+                            continue;
+                        }
                     }
                     if (motherdata.Columns[i][0] == "bool")
                     {
+                        if(motherdata.mothernetwork.activationtype =="Гипертангенс")
+                        normtable[i][0].norm.Add(-1);
+                        else
                         normtable[i][0].norm.Add(0);
                         normtable[i][1].norm.Add(1);
                         normtypes[i] = "bool";
@@ -1219,13 +1670,15 @@ namespace neurals
 
             //new Thread(new ParameterizedThreadStart(testgen)).Start(paramGen(@"C:\Users\User\Desktop\исклили2.xml", new int[] { 3 }, 20, true));
             network nnn = new network("sadf");
-            nnn.readfromXML(@"C:\Users\User\Desktop\исклили2.xml", new int[] {3});
+            nnn.readfromXML(@"C:\Users\User\Desktop\исклили.xml", new int[] {3});
             nnn.totalgen();
             nnn.addEnter();
             nnn.addLayer(2);
             nnn.connectToPrev();
+            //nnn.lastLayer().activ = "Линейная";
             nnn.addOut();
             nnn.connectToPrev();
+            renderUserdata();
             //nnn.getOutMistake(nnn.data.datarows[1]);
             /*nnn.setEnter(0);
             nnn.getAnswer();
@@ -1258,12 +1711,80 @@ namespace neurals
 
         private void brainList_SelectedIndexChanged(object sender, EventArgs e)
         {
-            onnetchange((getControl("brainList") as ListBox).SelectedItem.ToString());
+            onnetchange(brainlist.SelectedItem.ToString());
         }
 
         private void StartLearning_Click(object sender, EventArgs e)
         {
-            currentNetwork.startLearning();
+            if (currentNetwork.learning==false)
+            {
+                currentNetwork.learning = true;
+                currentNetwork.startLearning();
+            }
+            else
+            {
+                currentNetwork.learning = false;
+            }
+            Baseform.renderLearn();
+        }
+        private void koshi_Click(object sender, EventArgs e)
+        {
+            if (currentNetwork.learning == false)
+            {
+                currentNetwork.learning = true;
+                currentNetwork.startCoshi();
+            }
+            else
+            {
+                currentNetwork.learning = false;
+            }
+            Baseform.renderLearn();
+        }
+
+        private void speedNum_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            if (e.KeyChar == (char)Keys.Return)
+            {
+                currentNetwork.speed = (Double)(sender as NumericUpDown).Value;
+                renderLearn();
+            }
+        }
+
+        private void visualButton_Click(object sender, EventArgs e)
+        {
+            currentNetwork.totalvisual("", true);
+        }
+
+        private void TBeginNum_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            if (e.KeyChar == (char)Keys.Return)
+            {
+                currentNetwork.T0 = (Double)(sender as NumericUpDown).Value;
+                renderLearn();
+            }
+        }
+
+        private void gradientPercentNum_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            if (e.KeyChar == (char)Keys.Return)
+            {
+                currentNetwork.koshicoeff = (Double)(sender as NumericUpDown).Value;
+                renderLearn();
+            }
+        }
+
+        private void PspeedNum_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            if (e.KeyChar == (char)Keys.Return)
+            {
+                currentNetwork.p = (Double)(sender as NumericUpDown).Value;
+                renderLearn();
+            }
+        }
+
+        private void button2_Click(object sender, EventArgs e)
+        {
+            currentNetwork.multiplelearning(100);
         }
     }
 }
